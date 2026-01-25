@@ -5,104 +5,54 @@ const supabase = require("../config/supabase");
 /* ================= CREATE ORDER ================= */
 router.post("/", async (req, res) => {
   try {
-    const { customer_id, items, total } = req.body;
+    const { customer_id, customer_name, items } = req.body;
 
-    if (!customer_id || !items?.length) {
-      return res.status(400).json({ message: "Invalid order data" });
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: "No items" });
     }
 
-    /* ---- insert order ---- */
-    const { data: order, error: orderErr } = await supabase
+    const total = items.reduce(
+      (sum, i) => sum + Number(i.qty) * Number(i.price),
+      0,
+    );
+
+    // create order
+    const { data: order, error } = await supabase
       .from("orders")
-      .insert([{ customer_id, total }])
+      .insert([{ customer_id, customer_name, total }])
       .select()
       .single();
 
-    if (orderErr) throw orderErr;
+    if (error) throw error;
 
-    /* ---- insert items ---- */
+    // create order items
     const orderItems = items.map((i) => ({
       order_id: order.id,
-      product_id: i.productId,
+      product_id: i.product_id,
+      product_name: i.product_name,
       qty: i.qty,
       price: i.price,
-      total: i.total,
+      total: i.qty * i.price,
     }));
 
-    const { error: itemErr } = await supabase
-      .from("order_items")
-      .insert(orderItems);
+    await supabase.from("order_items").insert(orderItems);
 
-    if (itemErr) throw itemErr;
-
-    res.json({ success: true, order_id: order.id });
+    res.json(order);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Order creation failed" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-/* ================= GET ALL ORDERS ================= */
+/* ================= GET ORDERS ================= */
 router.get("/", async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from("orders")
-      .select(
-        `
-        *,
-        customers ( name, mobile )
-      `,
-      )
-      .order("created_at", { ascending: false });
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*, order_items(*)")
+    .order("created_at", { ascending: false });
 
-    if (error) throw error;
+  if (error) return res.status(500).json({ error: error.message });
 
-    res.json(data);
-  } catch {
-    res.status(500).json({ message: "Failed to load orders" });
-  }
-});
-
-/* ================= GET SINGLE ORDER ================= */
-router.get("/:id", async (req, res) => {
-  try {
-    const { data: order, error } = await supabase
-      .from("orders")
-      .select(
-        `
-        *,
-        customers ( name, mobile )
-      `,
-      )
-      .eq("id", req.params.id)
-      .single();
-
-    if (error) throw error;
-
-    const { data: items } = await supabase
-      .from("order_items")
-      .select(
-        `
-        *,
-        products ( name, images )
-      `,
-      )
-      .eq("order_id", req.params.id);
-
-    res.json({ order, items });
-  } catch {
-    res.status(500).json({ message: "Failed to fetch order" });
-  }
-});
-
-/* ================= DELETE ORDER ================= */
-router.delete("/:id", async (req, res) => {
-  try {
-    await supabase.from("orders").delete().eq("id", req.params.id);
-    res.json({ success: true });
-  } catch {
-    res.status(500).json({ message: "Delete failed" });
-  }
+  res.json(data);
 });
 
 module.exports = router;
