@@ -1,15 +1,15 @@
 const express = require("express");
 const router = express.Router();
-const Customer = require("../models/Customer");
+const {
+  getCustomers,
+  addCustomer,
+  updateCustomer,
+  deleteCustomer,
+} = require("../controllers/customerController");
 
-router.get("/", async (req, res) => {
-  res.json(await Customer.find());
-});
-
-router.post("/", async (req, res) => {
-  const c = new Customer(req.body);
-  await c.save();
-  res.json(c);
-});
+router.get("/", getCustomers);
+router.post("/", addCustomer);
+router.put("/:id", updateCustomer);
+router.delete("/:id", deleteCustomer);
 
 module.exports = router;

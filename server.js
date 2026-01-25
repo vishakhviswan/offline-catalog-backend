@@ -12,6 +12,7 @@ app.use(express.json());
 // Routes
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/categories", require("./routes/categoryRoutes"));
+app.use("/api/customers", require("./routes/customerRoutes"));
 
 app.get("/", (req, res) => {
   res.send("Offline Catalog Backend Running");
