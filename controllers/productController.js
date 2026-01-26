@@ -12,11 +12,12 @@ exports.createProduct = async (req, res) => {
       price,
       mrp,
       discount_percentage,
-      stock,
-      availability,
+      stock = 0,
       units,
       images,
     } = req.body;
+
+    const availability = stock > 0;
 
     const { data, error } = await supabase
       .from("products")
@@ -34,13 +35,18 @@ exports.createProduct = async (req, res) => {
           images,
         },
       ])
-      .select();
+      .select()
+      .single();
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) {
+      console.error("Create product error:", error);
+      return res.status(400).json({ error: error.message });
+    }
 
-    res.status(201).json(data[0]);
+    res.status(201).json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Create product exception:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -54,11 +60,15 @@ exports.getProducts = async (req, res) => {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) {
+      console.error("Get products error:", error);
+      return res.status(400).json({ error: error.message });
+    }
 
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Get products exception:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -75,16 +85,19 @@ exports.getProductById = async (req, res) => {
       .eq("id", id)
       .single();
 
-    if (error) return res.status(404).json({ error: "Product not found" });
+    if (error) {
+      return res.status(404).json({ error: "Product not found" });
+    }
 
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Get product error:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
 /**
- * UPDATE PRODUCT
+ * UPDATE PRODUCT (ADMIN + STOCK TOGGLE)
  */
 exports.updateProduct = async (req, res) => {
   try {
@@ -102,19 +115,20 @@ exports.updateProduct = async (req, res) => {
       images,
     } = req.body;
 
-    // 🔑 build update payload safely
-    const updatePayload = {
-      name,
-      category_id,
-      description,
-      price,
-      mrp,
-      discount_percentage,
-      units,
-      images,
-    };
+    // 🔒 build update payload only with provided fields
+    const updatePayload = {};
 
-    // ✅ STOCK LOGIC (IMPORTANT)
+    if (name !== undefined) updatePayload.name = name;
+    if (category_id !== undefined) updatePayload.category_id = category_id;
+    if (description !== undefined) updatePayload.description = description;
+    if (price !== undefined) updatePayload.price = price;
+    if (mrp !== undefined) updatePayload.mrp = mrp;
+    if (discount_percentage !== undefined)
+      updatePayload.discount_percentage = discount_percentage;
+    if (units !== undefined) updatePayload.units = units;
+    if (images !== undefined) updatePayload.images = images;
+
+    // ✅ STOCK + AVAILABILITY LOGIC (KEY FIX)
     if (stock !== undefined) {
       updatePayload.stock = stock;
       updatePayload.availability = stock > 0;
@@ -128,12 +142,13 @@ exports.updateProduct = async (req, res) => {
       .single();
 
     if (error) {
+      console.error("Update product error:", error);
       return res.status(400).json({ error: error.message });
     }
 
     res.json(data);
   } catch (err) {
-    console.error("Update product error:", err);
+    console.error("Update product exception:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -147,10 +162,14 @@ exports.deleteProduct = async (req, res) => {
 
     const { error } = await supabase.from("products").delete().eq("id", id);
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) {
+      console.error("Delete product error:", error);
+      return res.status(400).json({ error: error.message });
+    }
 
     res.json({ message: "Product deleted successfully" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Delete product exception:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
