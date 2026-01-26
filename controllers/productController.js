@@ -90,17 +90,51 @@ exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const {
+      name,
+      category_id,
+      description,
+      price,
+      mrp,
+      discount_percentage,
+      stock,
+      units,
+      images,
+    } = req.body;
+
+    // 🔑 build update payload safely
+    const updatePayload = {
+      name,
+      category_id,
+      description,
+      price,
+      mrp,
+      discount_percentage,
+      units,
+      images,
+    };
+
+    // ✅ STOCK LOGIC (IMPORTANT)
+    if (stock !== undefined) {
+      updatePayload.stock = stock;
+      updatePayload.availability = stock > 0;
+    }
+
     const { data, error } = await supabase
       .from("products")
-      .update(req.body)
+      .update(updatePayload)
       .eq("id", id)
-      .select();
+      .select()
+      .single();
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
-    res.json(data[0]);
+    res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Update product error:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -120,4 +154,3 @@ exports.deleteProduct = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
