@@ -3,7 +3,7 @@ const router = express.Router();
 const productController = require("../controllers/productController");
 
 // CREATE product
-router.post("/bulk", productController.bulkImportProducts);
+router.post("/bulk", productController.bulkCreateProducts);
 router.post("/", productController.createProduct);
 
 // GET all products (catalog + admin)

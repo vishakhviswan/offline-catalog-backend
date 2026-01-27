@@ -6,12 +6,22 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+const cors = require("cors");
 
-// 🔑 FIX: increase body size for bulk import
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+
+// VERY IMPORTANT for bulk
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// handle preflight explicitly
+app.options("*", cors());
 // Routes
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/categories", require("./routes/categoryRoutes"));
