@@ -187,70 +187,64 @@ exports.bulkCreateProducts = async (req, res) => {
       return res.status(400).json({ error: "No products provided" });
     }
 
-    const inserted = [];
-    const failed = [];
+    /* ================== CATEGORIES ================== */
+    const categoryNames = [
+      ...new Set(products.map((p) => p.category_name || "General")),
+    ];
 
-    for (const p of products) {
-      try {
-        // 1️⃣ CATEGORY: auto create if not exists
-        let categoryId = null;
+    // existing categories
+    const { data: existingCats } = await supabase
+      .from("categories")
+      .select("*")
+      .in("name", categoryNames);
 
-        if (p.category_name) {
-          const { data: existingCategory } = await supabase
-            .from("categories")
-            .select("*")
-            .ilike("name", p.category_name)
-            .single();
+    const categoryMap = {};
+    existingCats?.forEach((c) => {
+      categoryMap[c.name] = c.id;
+    });
 
-          if (existingCategory) {
-            categoryId = existingCategory.id;
-          } else {
-            const { data: newCategory, error: catErr } = await supabase
-              .from("categories")
-              .insert([{ name: p.category_name }])
-              .select()
-              .single();
+    // missing categories
+    const missing = categoryNames.filter((n) => !categoryMap[n]);
 
-            if (catErr) throw catErr;
-            categoryId = newCategory.id;
-          }
-        }
+    if (missing.length) {
+      const { data: newCats, error } = await supabase
+        .from("categories")
+        .insert(missing.map((name) => ({ name })))
+        .select();
 
-        // 2️⃣ INSERT PRODUCT
-        const payload = {
-          name: p.name,
-          category_id: categoryId,
-          price: p.price,
-          mrp: p.mrp || null,
-          discount_percentage: 0,
-          stock: p.stock || 0,
-          availability: (p.stock || 0) > 0,
-          units: p.units || [{ name: "pcs", multiplier: 1 }],
-          images: [],
-        };
+      if (error) throw error;
 
-        const { data, error } = await supabase
-          .from("products")
-          .insert([payload])
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        inserted.push(data);
-      } catch (err) {
-        console.error("Row failed:", p.name, err.message);
-        failed.push({ name: p.name, error: err.message });
-      }
+      newCats.forEach((c) => {
+        categoryMap[c.name] = c.id;
+      });
     }
 
+    /* ================== PRODUCTS ================== */
+    const payload = products.map((p) => ({
+      name: p.name,
+      category_id: categoryMap[p.category_name] || null,
+      price: p.price,
+      mrp: p.mrp || null,
+      discount_percentage: 0,
+      stock: p.stock || 0,
+      availability: (p.stock || 0) > 0,
+      units: p.units || [{ name: "pcs", multiplier: 1 }],
+      images: [],
+    }));
+
+    const { data, error } = await supabase
+      .from("products")
+      .insert(payload)
+      .select();
+
+    if (error) throw error;
+
     res.json({
-      success: inserted.length,
-      failed: failed.length,
-      failedRows: failed,
+      success: data.length,
+      failed: 0,
     });
   } catch (err) {
     console.error("Bulk import error:", err);
-    res.status(500).json({ error: "Bulk import failed" });
+    res.status(500).json({ error: err.message || "Bulk import failed" });
   }
 };
