@@ -4,6 +4,7 @@ const productController = require("../controllers/productController");
 
 // CREATE product
 router.post("/", productController.createProduct);
+router.post("/bulk", productController.bulkImportProducts)
 
 // GET all products (catalog + admin)
 router.get("/", productController.getProducts);

@@ -173,3 +173,124 @@ exports.deleteProduct = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
+/**
+ * BULK IMPORT PRODUCTS
+ * - Auto create category
+ * - Normalize units
+ * - Stock → availability auto
+ * - Update if same name + category exists
+ */
+exports.bulkImportProducts = async (req, res) => {
+  try {
+    const { products } = req.body;
+
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: "No products provided" });
+    }
+
+    /* ---------- LOAD CATEGORIES ---------- */
+    const { data: categories, error: catErr } = await supabase
+      .from("categories")
+      .select("id,name");
+
+    if (catErr) throw catErr;
+
+    const categoryMap = {};
+    categories.forEach((c) => {
+      categoryMap[c.name.toLowerCase()] = c.id;
+    });
+
+    const success = [];
+    const failed = [];
+
+    /* ---------- PROCESS EACH ROW ---------- */
+    for (const row of products) {
+      try {
+        if (!row.name || !row.category || !row.price) {
+          throw new Error("Missing name / category / price");
+        }
+
+        /* ===== CATEGORY AUTO CREATE ===== */
+        let categoryId = categoryMap[row.category.toLowerCase()];
+
+        if (!categoryId) {
+          const { data: newCat, error } = await supabase
+            .from("categories")
+            .insert([{ name: row.category.trim() }])
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          categoryId = newCat.id;
+          categoryMap[row.category.toLowerCase()] = categoryId;
+        }
+
+        /* ===== UNITS NORMALIZE ===== */
+        let units = [{ name: "pcs", multiplier: 1 }];
+
+        if (row.units) {
+          if (Array.isArray(row.units)) {
+            units = row.units;
+          } else if (typeof row.units === "string") {
+            units = row.units.split(",").map((u) => ({
+              name: u.trim(),
+              multiplier: 1,
+            }));
+          }
+        }
+
+        /* ===== STOCK LOGIC ===== */
+        const stock = Number(row.stock) || 0;
+        const availability = stock > 0;
+
+        /* ===== CHECK DUPLICATE ===== */
+        const { data: existing } = await supabase
+          .from("products")
+          .select("id")
+          .eq("name", row.name.trim())
+          .eq("category_id", categoryId)
+          .maybeSingle();
+
+        const payload = {
+          name: row.name.trim(),
+          category_id: categoryId,
+          price: Number(row.price),
+          mrp: row.mrp ? Number(row.mrp) : null,
+          discount_percentage: row.discount_percentage || 0,
+          stock,
+          availability,
+          units,
+          images: [],
+        };
+
+        if (existing) {
+          await supabase
+            .from("products")
+            .update(payload)
+            .eq("id", existing.id);
+        } else {
+          await supabase.from("products").insert([payload]);
+        }
+
+        success.push(row.name);
+      } catch (err) {
+        failed.push({
+          product: row.name || "Unknown",
+          reason: err.message,
+        });
+      }
+    }
+
+    res.json({
+      message: "Bulk import completed",
+      successCount: success.length,
+      failedCount: failed.length,
+      failed,
+    });
+  } catch (err) {
+    console.error("Bulk import error:", err);
+    res.status(500).json({ error: "Bulk import failed" });
+  }
+};
