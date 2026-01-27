@@ -5,9 +5,11 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-const cors = require("cors");
+/* 🔥 BODY LIMIT FIX */
+app.use(express.json({ limit: "20mb" }));
+app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
+/* 🔥 CORS FIX (preflight support) */
 app.use(
   cors({
     origin: "*",
@@ -16,13 +18,10 @@ app.use(
   }),
 );
 
-// VERY IMPORTANT for bulk
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-// handle preflight explicitly
+// Handle preflight explicitly
 app.options("*", cors());
-// Routes
+
+/* ROUTES */
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/categories", require("./routes/categoryRoutes"));
 app.use("/api/customers", require("./routes/customerRoutes"));

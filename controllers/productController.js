@@ -232,16 +232,28 @@ exports.bulkCreateProducts = async (req, res) => {
       images: [],
     }));
 
-    const { data, error } = await supabase
-      .from("products")
-      .insert(payload)
-      .select();
+    let success = 0;
+    const BATCH_SIZE = 300;
 
-    if (error) throw error;
+    for (let i = 0; i < payload.length; i += BATCH_SIZE) {
+      const batch = payload.slice(i, i + BATCH_SIZE);
+
+      const { data, error } = await supabase
+        .from("products")
+        .insert(batch)
+        .select("id");
+
+      if (error) {
+        console.error("Batch insert failed:", error);
+        continue;
+      }
+
+      success += data.length;
+    }
 
     res.json({
-      success: data.length,
-      failed: 0,
+      success,
+      failed: payload.length - success,
     });
   } catch (err) {
     console.error("Bulk import error:", err);
