@@ -97,12 +97,11 @@ exports.getProductById = async (req, res) => {
 };
 
 /**
- * UPDATE PRODUCT (ADMIN + STOCK TOGGLE)
+ * UPDATE PRODUCT
  */
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-
     const {
       name,
       category_id,
@@ -115,7 +114,6 @@ exports.updateProduct = async (req, res) => {
       images,
     } = req.body;
 
-    // 🔒 build update payload only with provided fields
     const updatePayload = {};
 
     if (name !== undefined) updatePayload.name = name;
@@ -128,7 +126,6 @@ exports.updateProduct = async (req, res) => {
     if (units !== undefined) updatePayload.units = units;
     if (images !== undefined) updatePayload.images = images;
 
-    // ✅ STOCK + AVAILABILITY LOGIC (KEY FIX)
     if (stock !== undefined) {
       updatePayload.stock = stock;
       updatePayload.availability = stock > 0;
@@ -174,16 +171,8 @@ exports.deleteProduct = async (req, res) => {
   }
 };
 
-products.forEach((p, index) => {
-  if (!p.name || !p.price) {
-    throw new Error(`Invalid product at index ${index}`);
-  }
-});
-
 /**
  * BULK CREATE PRODUCTS
- * - auto create category if not exists
- * - accepts array of products
  */
 exports.bulkCreateProducts = async (req, res) => {
   try {
@@ -193,12 +182,18 @@ exports.bulkCreateProducts = async (req, res) => {
       return res.status(400).json({ error: "No products provided" });
     }
 
+    // ✅ VALIDATION (MOVED INSIDE FUNCTION)
+    products.forEach((p, index) => {
+      if (!p.name || !p.price) {
+        throw new Error(`Invalid product at index ${index}`);
+      }
+    });
+
     /* ================== CATEGORIES ================== */
     const categoryNames = [
       ...new Set(products.map((p) => p.category_name || "General")),
     ];
 
-    // existing categories
     const { data: existingCats } = await supabase
       .from("categories")
       .select("*")
@@ -209,7 +204,6 @@ exports.bulkCreateProducts = async (req, res) => {
       categoryMap[c.name] = c.id;
     });
 
-    // missing categories
     const missing = categoryNames.filter((n) => !categoryMap[n]);
 
     if (missing.length) {
