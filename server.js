@@ -19,7 +19,7 @@ app.use(
 );
 
 // Handle preflight explicitly
-app.options("*", cors());
+app.options("/*", cors());
 
 /* ROUTES */
 app.use("/api/products", require("./routes/productRoutes"));
