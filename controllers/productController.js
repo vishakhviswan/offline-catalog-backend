@@ -174,6 +174,12 @@ exports.deleteProduct = async (req, res) => {
   }
 };
 
+products.forEach((p, index) => {
+  if (!p.name || !p.price) {
+    throw new Error(`Invalid product at index ${index}`);
+  }
+});
+
 /**
  * BULK CREATE PRODUCTS
  * - auto create category if not exists
@@ -233,7 +239,7 @@ exports.bulkCreateProducts = async (req, res) => {
     }));
 
     let success = 0;
-    const BATCH_SIZE = 300;
+    const BATCH_SIZE = 50;
 
     for (let i = 0; i < payload.length; i += BATCH_SIZE) {
       const batch = payload.slice(i, i + BATCH_SIZE);
@@ -244,7 +250,7 @@ exports.bulkCreateProducts = async (req, res) => {
         .select("id");
 
       if (error) {
-        console.error("Batch insert failed:", error);
+        console.error("Batch insert failed:", error.message);
         continue;
       }
 
@@ -256,7 +262,7 @@ exports.bulkCreateProducts = async (req, res) => {
       failed: payload.length - success,
     });
   } catch (err) {
-    console.error("Bulk import error:", err);
-    res.status(500).json({ error: err.message || "Bulk import failed" });
+    console.error("Bulk import error:", err.message);
+    res.status(500).json({ error: err.message });
   }
 };
