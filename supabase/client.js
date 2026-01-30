@@ -7,4 +7,4 @@ const supabase = createClient(
 
 module.exports = supabase;
 
-// Client chumma ittatha
+// Client chumma ittatha not used
