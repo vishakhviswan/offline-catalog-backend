@@ -13,14 +13,12 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ error: "No items in order" });
     }
 
-    const total = items.reduce(
-      (sum, i) =>
-        sum +
-        Number(i.qty || 0) *
-          Number(i.price || 0) *
-          Number(i.unitMultiplier || 1),
-      0,
-    );
+  const total = items.reduce((sum, i) => {
+    const qty = Number(i.qty) || 0;
+    const price = Number(i.price) || 0;
+    const mul = Number(i.unitMultiplier) || 1;
+    return sum + qty * price * mul;
+  }, 0);
 
     /* 1️⃣ INSERT ORDER */
     const { data: order, error: orderError } = await supabase
