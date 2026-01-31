@@ -17,7 +17,7 @@ exports.addCustomer = async (req, res) => {
 
   const { data, error } = await supabase
     .from("customers")
-    .insert([{ name, mobile, route }])
+    .insert([{ name, mobile: mobile || null, route: route || null }])
     .select()
     .single();
 
