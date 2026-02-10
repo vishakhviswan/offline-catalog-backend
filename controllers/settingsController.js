@@ -11,8 +11,9 @@ exports.getSettings = async (req, res) => {
   }
 
   const settings = {};
-  data.forEach((s) => {
-    settings[s.key] = s.value;
+    data.forEach(({ key, value }) => {
+        if (key.includes(".")) return;
+    settings[key] = value;
   });
 
   res.json(settings);
