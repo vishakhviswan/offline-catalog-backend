@@ -20,24 +20,19 @@ exports.getSettings = async (req, res) => {
 
 /* ================= UPDATE SETTINGS ================= */
 exports.updateSettings = async (req, res) => {
-  const updates = req.body; // { "ui.show_product_images": true }
+  const { key, value } = req.body;
 
-  try {
-    const payload = Object.entries(updates).map(([key, value]) => ({
-      key,
-      value,
-    }));
-
-    const { error } = await supabase
-      .from("app_settings")
-      .upsert(payload, { onConflict: ["key"] });
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (!key) {
+    return res.status(400).json({ error: "Key required" });
   }
+
+  const { error } = await supabase
+    .from("app_settings")
+    .upsert([{ key, value }], { onConflict: ["key"] });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ success: true });
 };
