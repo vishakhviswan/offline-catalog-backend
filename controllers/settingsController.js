@@ -11,24 +11,37 @@ exports.getSettings = async (req, res) => {
   }
 
   const settings = {};
-  data.forEach((row) => {
-    settings[row.key] = row.value;
+
+  data.forEach(({ key, value }) => {
+    // SAFETY: only dotted keys allowed
+    if (!key.includes(".")) return;
+
+    const parts = key.split(".");
+    let obj = settings;
+
+    while (parts.length > 1) {
+      const p = parts.shift();
+      if (!obj[p]) obj[p] = {};
+      obj = obj[p];
+    }
+
+    obj[parts[0]] = value;
   });
 
   res.json(settings);
 };
 
-/* ================= UPDATE SETTINGS ================= */
-exports.updateSettings = async (req, res) => {
+/* ================= UPDATE SETTING ================= */
+exports.updateSetting = async (req, res) => {
   const { key, value } = req.body;
 
-  if (!key) {
-    return res.status(400).json({ error: "Key required" });
+  if (!key || !key.includes(".")) {
+    return res.status(400).json({ error: "Invalid setting key" });
   }
 
   const { error } = await supabase
     .from("app_settings")
-    .upsert([{ key, value }], { onConflict: ["key"] });
+    .upsert({ key, value }, { onConflict: "key" });
 
   if (error) {
     return res.status(500).json({ error: error.message });
