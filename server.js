@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
+const settingsRoutes = require("./routes/settingsRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -26,6 +27,7 @@ app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/categories", require("./routes/categoryRoutes"));
 app.use("/api/customers", require("./routes/customerRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
+app.use("/api/settings", settingsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Offline Catalog Backend Running");
