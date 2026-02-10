@@ -11,30 +11,33 @@ exports.getSettings = async (req, res) => {
   }
 
   const settings = {};
-    data.forEach(({ key, value }) => {
-        if (key.includes(".")) return;
-    settings[key] = value;
+  data.forEach((row) => {
+    settings[row.key] = row.value;
   });
 
   res.json(settings);
 };
 
-/* ================= UPDATE SETTING ================= */
-exports.updateSetting = async (req, res) => {
-  const { key, value } = req.body;
+/* ================= UPDATE SETTINGS ================= */
+exports.updateSettings = async (req, res) => {
+  const updates = req.body; // { "ui.show_product_images": true }
 
-  if (!key) {
-    return res.status(400).json({ error: "Key required" });
+  try {
+    const payload = Object.entries(updates).map(([key, value]) => ({
+      key,
+      value,
+    }));
+
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert(payload, { onConflict: ["key"] });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const { error } = await supabase
-    .from("app_settings")
-    .upsert({ key, value }, { onConflict: "key" });
-
-  if (error) {
-    console.error("Settings update error:", error);
-    return res.status(500).json({ error: error.message });
-  }
-
-  res.json({ success: true });
 };
