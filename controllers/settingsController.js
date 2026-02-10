@@ -13,7 +13,7 @@ exports.getSettings = async (req, res) => {
   const settings = {};
 
   data.forEach(({ key, value }) => {
-    // SAFETY: only dotted keys allowed
+    // 🔒 ignore non-namespaced keys
     if (!key.includes(".")) return;
 
     const parts = key.split(".");
@@ -36,7 +36,7 @@ exports.updateSetting = async (req, res) => {
   const { key, value } = req.body;
 
   if (!key || !key.includes(".")) {
-    return res.status(400).json({ error: "Invalid setting key" });
+    return res.status(400).json({ error: "Invalid key" });
   }
 
   const { error } = await supabase
@@ -47,5 +47,6 @@ exports.updateSetting = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
+  // ❗ NEVER send key/value back
   res.json({ success: true });
 };
