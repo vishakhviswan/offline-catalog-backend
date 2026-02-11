@@ -8,6 +8,7 @@ exports.createProduct = async (req, res) => {
     const {
       name,
       category_id,
+      vendor_id,
       description,
       price,
       mrp,
@@ -25,6 +26,7 @@ exports.createProduct = async (req, res) => {
         {
           name,
           category_id,
+          vendor_id,
           description,
           price,
           mrp,
@@ -105,6 +107,7 @@ exports.updateProduct = async (req, res) => {
     const {
       name,
       category_id,
+      vendor_id,
       description,
       price,
       mrp,
@@ -118,6 +121,7 @@ exports.updateProduct = async (req, res) => {
 
     if (name !== undefined) updatePayload.name = name;
     if (category_id !== undefined) updatePayload.category_id = category_id;
+    if (vendor_id !== undefined) updatePayload.vendor_id = vendor_id;
     if (description !== undefined) updatePayload.description = description;
     if (price !== undefined) updatePayload.price = price;
     if (mrp !== undefined) updatePayload.mrp = mrp;
