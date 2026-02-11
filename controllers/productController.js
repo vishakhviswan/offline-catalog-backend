@@ -16,6 +16,8 @@ exports.createProduct = async (req, res) => {
       stock = 0,
       units,
       images,
+      purchase_rate,
+      margin_percentage,
     } = req.body;
 
     const availability = stock > 0;
@@ -35,6 +37,8 @@ exports.createProduct = async (req, res) => {
           availability,
           units,
           images,
+          purchase_rate,
+          margin_percentage,
         },
       ])
       .select()
@@ -115,6 +119,8 @@ exports.updateProduct = async (req, res) => {
       stock,
       units,
       images,
+      purchase_rate,
+      margin_percentage,
     } = req.body;
 
     const updatePayload = {};
@@ -124,6 +130,10 @@ exports.updateProduct = async (req, res) => {
     if (vendor_id !== undefined) updatePayload.vendor_id = vendor_id;
     if (description !== undefined) updatePayload.description = description;
     if (price !== undefined) updatePayload.price = price;
+    if (margin_percentage !== undefined)
+      updatePayload.margin_percentage = margin_percentage;
+    if (purchase_rate !== undefined)
+      updatePayload.purchase_rate = purchase_rate;
     if (mrp !== undefined) updatePayload.mrp = mrp;
     if (discount_percentage !== undefined)
       updatePayload.discount_percentage = discount_percentage;
