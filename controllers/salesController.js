@@ -1,7 +1,7 @@
 const XLSX = require("xlsx");
 const supabase = require("../supabase/client");
 
-export const importSales = async (req, res) => {
+const importSales = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
@@ -32,17 +32,14 @@ export const importSales = async (req, res) => {
 
       const customerName = firstRow["Party Name"];
       const invoiceDate = new Date(firstRow["Date"]);
-
       let totalAmount = 0;
 
-      // FIND CUSTOMER
       const { data: customer } = await supabase
         .from("customers")
         .select("*")
         .ilike("name", customerName)
         .single();
 
-      // CREATE INVOICE
       const { data: invoice, error: invoiceError } = await supabase
         .from("invoices")
         .insert({
@@ -95,7 +92,6 @@ export const importSales = async (req, res) => {
 
       summary.invoices_created++;
 
-      // AUTO LINK ORDER
       if (customer?.id) {
         const { data: order } = await supabase
           .from("orders")
@@ -153,3 +149,5 @@ export const importSales = async (req, res) => {
     res.status(500).json({ error: "Import failed" });
   }
 };
+
+module.exports = { importSales };
