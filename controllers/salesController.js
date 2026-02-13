@@ -9,7 +9,10 @@ const importSales = async (req, res) => {
 
     const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet);
+   const rows = XLSX.utils.sheet_to_json(sheet, {
+     range: 2, // skip first 2 rows
+   });
+
 console.log("HEADERS:", Object.keys(rows[0]));
 
     if (!rows.length) {
