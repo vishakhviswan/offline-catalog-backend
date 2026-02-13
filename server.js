@@ -30,6 +30,7 @@ app.use("/api/customers", require("./routes/customerRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
 app.use("/api/settings", settingsRoutes);
 app.use("/api/vendors", vendorRoutes);
+app.use("/api/sales", require("./routes/salesRoutes"));
 
 app.get("/", (req, res) => {
   res.send("Offline Catalog Backend Running");
