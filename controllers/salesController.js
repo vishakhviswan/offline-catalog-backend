@@ -1,5 +1,5 @@
-import * as XLSX from "xlsx";
-import { supabase } from "../supabase/client.js";
+const XLSX = require("xlsx");
+const supabase = require("../supabase/client");
 
 export const importSales = async (req, res) => {
   try {
