@@ -11,10 +11,17 @@ const importSales = async (req, res) => {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet);
 
+    if (!rows.length) {
+      return res.status(400).json({ error: "Empty file" });
+    }
+
     const grouped = {};
 
     rows.forEach((row) => {
       const invoiceNo = row["Invoice No./Txn No."];
+
+      if (!invoiceNo) return;
+
       if (!grouped[invoiceNo]) grouped[invoiceNo] = [];
       grouped[invoiceNo].push(row);
     });
@@ -30,23 +37,45 @@ const importSales = async (req, res) => {
       const items = grouped[invoiceNo];
       const firstRow = items[0];
 
-      const customerName = firstRow["Party Name"];
-      const invoiceDate = new Date(firstRow["Date"]);
+      const customerName = firstRow["Party Name"] || "Unknown";
+
+      /* ================= DATE FIX ================= */
+      let rawDate = firstRow["Date"];
+      let invoiceDate = null;
+
+      if (rawDate) {
+        if (typeof rawDate === "number") {
+          invoiceDate = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+        } else {
+          invoiceDate = new Date(rawDate);
+        }
+      }
+
+      if (!invoiceDate || isNaN(invoiceDate.getTime())) {
+        console.log("Invalid date detected. Using current date.");
+        invoiceDate = new Date();
+      }
+
       let totalAmount = 0;
 
+      /* ================= FIND CUSTOMER ================= */
       const { data: customer } = await supabase
         .from("customers")
         .select("*")
         .ilike("name", customerName)
-        .single();
+        .limit(1);
 
+      const customerData = customer?.[0] || null;
+
+      /* ================= CREATE INVOICE ================= */
       const { data: invoice, error: invoiceError } = await supabase
         .from("invoices")
         .insert({
-          invoice_no: invoiceNo,
+          invoice_no: String(invoiceNo),
           invoice_date: invoiceDate,
-          customer_id: customer?.id || null,
+          customer_id: customerData?.id || null,
           customer_name: customerName,
+          total_amount: 0,
           source: "vyapar",
         })
         .select()
@@ -54,6 +83,7 @@ const importSales = async (req, res) => {
 
       if (invoiceError) throw invoiceError;
 
+      /* ================= INSERT ITEMS ================= */
       for (const row of items) {
         const productName = row["Item Name"];
         const qty = Number(row["Quantity"]) || 0;
@@ -66,25 +96,29 @@ const importSales = async (req, res) => {
           .from("products")
           .select("*")
           .ilike("name", productName)
-          .single();
+          .limit(1);
+
+        const productData = product?.[0] || null;
 
         await supabase.from("invoice_items").insert({
           invoice_id: invoice.id,
-          product_id: product?.id || null,
+          product_id: productData?.id || null,
           product_name: productName,
           qty,
           price,
           total: amount,
         });
 
-        if (product) {
+        /* ================= STOCK UPDATE ================= */
+        if (productData) {
           await supabase
             .from("products")
-            .update({ stock: product.stock - qty })
-            .eq("id", product.id);
+            .update({ stock: (productData.stock || 0) - qty })
+            .eq("id", productData.id);
         }
       }
 
+      /* ================= UPDATE TOTAL ================= */
       await supabase
         .from("invoices")
         .update({ total_amount: totalAmount })
@@ -92,20 +126,22 @@ const importSales = async (req, res) => {
 
       summary.invoices_created++;
 
-      if (customer?.id) {
+      /* ================= ORDER LINKING ================= */
+      if (customerData?.id) {
         const { data: order } = await supabase
           .from("orders")
           .select("*, order_items(*)")
-          .eq("customer_id", customer.id)
+          .eq("customer_id", customerData.id)
           .in("status", ["open", "partial_open"])
           .order("created_at", { ascending: false })
-          .limit(1)
-          .single();
+          .limit(1);
 
-        if (order) {
+        const latestOrder = order?.[0] || null;
+
+        if (latestOrder) {
           let fullMatch = true;
 
-          for (const oi of order.order_items) {
+          for (const oi of latestOrder.order_items || []) {
             const invItem = items.find(
               (r) => r["Item Name"] === oi.product_name,
             );
@@ -123,7 +159,7 @@ const importSales = async (req, res) => {
                 status: "closed",
                 invoice_id: invoice.id,
               })
-              .eq("id", order.id);
+              .eq("id", latestOrder.id);
 
             summary.orders_linked++;
           } else {
@@ -133,7 +169,7 @@ const importSales = async (req, res) => {
                 status: "partial_open",
                 invoice_id: invoice.id,
               })
-              .eq("id", order.id);
+              .eq("id", latestOrder.id);
 
             summary.partial_orders++;
           }
@@ -145,8 +181,8 @@ const importSales = async (req, res) => {
 
     res.json(summary);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Import failed" });
+    console.error("IMPORT ERROR:", err);
+    res.status(500).json({ error: err.message || "Import failed" });
   }
 };
 
