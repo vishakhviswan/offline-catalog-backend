@@ -84,3 +84,22 @@ exports.getOrders = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+exports.deleteOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // delete order items first
+    await supabase.from("order_items").delete().eq("order_id", id);
+
+    // delete order
+    const { error } = await supabase.from("orders").delete().eq("id", id);
+
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE ORDER ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
