@@ -1,9 +1,88 @@
 const XLSX = require("xlsx");
-const supabase = require("../supabase/client");
+const supabase = require("../config/supabase");
 
-/* ===================================================
-   STEP 1 — ANALYZE SALES FILE (NO DB INSERT)
-=================================================== */
+function normalizeText(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim();
+}
+
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : NaN;
+}
+
+function groupRowsByInvoice(rows) {
+  const grouped = new Map();
+
+  for (const row of rows) {
+    const invoiceNo = normalizeText(String(row.invoice_no || ""));
+    if (!invoiceNo) {
+      continue;
+    }
+
+    if (!grouped.has(invoiceNo)) {
+      grouped.set(invoiceNo, []);
+    }
+
+    grouped.get(invoiceNo).push(row);
+  }
+
+  return grouped;
+}
+
+async function getCustomerIdByName(name, cache) {
+  const key = name.toLowerCase();
+  if (cache.has(key)) {
+    return cache.get(key);
+  }
+
+  const { data, error } = await supabase
+    .from("customers")
+    .select("id")
+    .ilike("name", name)
+    .limit(1);
+
+  if (error) {
+    throw error;
+  }
+
+  const customerId = data && data.length ? data[0].id : null;
+  if (!customerId) {
+    throw new Error(`Customer not found: ${name}`);
+  }
+
+  cache.set(key, customerId);
+  return customerId;
+}
+
+async function getProductIdByName(name, cache) {
+  const key = name.toLowerCase();
+  if (cache.has(key)) {
+    return cache.get(key);
+  }
+
+  const { data, error } = await supabase
+    .from("products")
+    .select("id")
+    .ilike("name", name)
+    .limit(1);
+
+  if (error) {
+    throw error;
+  }
+
+  const productId = data && data.length ? data[0].id : null;
+  if (!productId) {
+    throw new Error(`Product not found: ${name}`);
+  }
+
+  cache.set(key, productId);
+  return productId;
+}
+
 const analyzeSales = async (req, res) => {
   try {
     if (!req.file) {
@@ -27,7 +106,9 @@ const analyzeSales = async (req, res) => {
       const customerName = row["Party Name"];
       const productName = row["Item Name"];
 
-      if (invoiceNo) invoices.add(invoiceNo);
+      if (invoiceNo) {
+        invoices.add(invoiceNo);
+      }
 
       if (customerName && !customersMap.has(customerName)) {
         const { data } = await supabase
@@ -76,7 +157,7 @@ const analyzeSales = async (req, res) => {
       }
     }
 
-    res.json({
+    return res.json({
       total_rows: rows.length,
       total_invoices: invoices.size,
       customers: Array.from(customersMap.values()),
@@ -84,106 +165,144 @@ const analyzeSales = async (req, res) => {
     });
   } catch (err) {
     console.error("ANALYZE ERROR:", err);
-    res.status(500).json({ error: err.message || "Analyze failed" });
+    return res.status(500).json({ error: err.message || "Analyze failed" });
   }
 };
 
-/* ===================================================
-   STEP 2 — IMPORT SALES (YOUR EXISTING LOGIC)
-=================================================== */
-
 const importSales = async (req, res) => {
+  const createdInvoiceIds = [];
+
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
+    const { rows } = req.body || {};
+
+    if (!Array.isArray(rows)) {
+      return res.status(400).json({ error: "rows must be an array" });
     }
 
-    const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { range: 2 });
-
-    if (!rows.length) {
-      return res.status(400).json({ error: "Empty file" });
+    if (rows.length === 0) {
+      return res.status(200).json({
+        created_invoices: 0,
+        created_items: 0,
+      });
     }
 
-    const grouped = {};
+    const groupedInvoices = groupRowsByInvoice(rows);
+    const customerCache = new Map();
+    const productCache = new Map();
+    let createdInvoices = 0;
+    let createdItems = 0;
 
-    rows.forEach((row) => {
-      const invoiceNo = row["Invoice No./Txn No."];
-      if (!invoiceNo) return;
+    for (const [invoiceNo, invoiceRows] of groupedInvoices.entries()) {
+      if (!invoiceRows.length) {
+        continue;
+      }
 
-      if (!grouped[invoiceNo]) grouped[invoiceNo] = [];
-      grouped[invoiceNo].push(row);
-    });
+      const customerName = normalizeText(invoiceRows[0].customer_name);
+      if (!customerName) {
+        throw new Error(`Missing customer_name for invoice ${invoiceNo}`);
+      }
 
-    let summary = {
-      invoices_created: 0,
-      orders_linked: 0,
-      partial_orders: 0,
-      standalone_invoices: 0,
-    };
+      const customerId = await getCustomerIdByName(customerName, customerCache);
 
-    for (const invoiceNo in grouped) {
-      const items = grouped[invoiceNo];
-      const firstRow = items[0];
-
-      const customerName = firstRow["Party Name"] || "Unknown";
-      let invoiceDate = new Date(firstRow["Date"] || new Date());
-
-      const { data: customer } = await supabase
-        .from("customers")
-        .select("*")
-        .ilike("name", customerName)
-        .limit(1);
-
-      const customerData = customer?.[0] || null;
-
-      const { data: invoice, error: invoiceError } = await supabase
-        .from("invoices")
-        .insert({
-          invoice_no: String(invoiceNo),
-          invoice_date: invoiceDate,
-          customer_id: customerData?.id || null,
-          customer_name: customerName,
-          total_amount: 0,
-          source: "vyapar",
-        })
-        .select()
-        .single();
-
-      if (invoiceError) throw invoiceError;
-
+      const itemPayload = [];
       let totalAmount = 0;
 
-      for (const row of items) {
-        const productName = row["Item Name"];
-        const qty = Number(row["Quantity"]) || 0;
-        const price = Number(row["UnitPrice"]) || 0;
-        const amount = Number(row["Amount"]) || 0;
+      for (const row of invoiceRows) {
+        const productName = normalizeText(row.product_name);
+        if (!productName) {
+          throw new Error(`Missing product_name for invoice ${invoiceNo}`);
+        }
 
-        totalAmount += amount;
+        const qty = toFiniteNumber(row.qty);
+        const rate = toFiniteNumber(row.rate);
 
-        await supabase.from("invoice_items").insert({
-          invoice_id: invoice.id,
-          product_name: productName,
+        if (!Number.isFinite(qty) || qty <= 0) {
+          throw new Error(`Invalid qty for invoice ${invoiceNo}`);
+        }
+
+        if (!Number.isFinite(rate) || rate < 0) {
+          throw new Error(`Invalid rate for invoice ${invoiceNo}`);
+        }
+
+        const productId = await getProductIdByName(productName, productCache);
+        const lineTotal = qty * rate;
+        totalAmount += lineTotal;
+
+        itemPayload.push({
+          product_id: productId,
           qty,
-          price,
-          total: amount,
+          rate,
+          line_total: lineTotal,
         });
       }
 
-      await supabase
-        .from("invoices")
-        .update({ total_amount: totalAmount })
-        .eq("id", invoice.id);
+      const { data: invoiceRow, error: invoiceError } = await supabase
+        .from("sales_invoices")
+        .insert([
+          {
+            invoice_no: String(invoiceNo),
+            customer_id: customerId,
+            total_amount: totalAmount,
+          },
+        ])
+        .select("id")
+        .single();
 
-      summary.invoices_created++;
+      if (invoiceError) {
+        throw invoiceError;
+      }
+
+      const invoiceId = invoiceRow.id;
+      createdInvoiceIds.push(invoiceId);
+
+      const itemsToInsert = itemPayload.map((item) => ({
+        invoice_id: invoiceId,
+        product_id: item.product_id,
+        qty: item.qty,
+        rate: item.rate,
+        line_total: item.line_total,
+      }));
+
+      const { data: insertedItems, error: itemsError } = await supabase
+        .from("sales_invoice_items")
+        .insert(itemsToInsert)
+        .select("id");
+
+      if (itemsError) {
+        throw itemsError;
+      }
+
+      createdInvoices += 1;
+      createdItems += insertedItems ? insertedItems.length : itemsToInsert.length;
     }
 
-    res.json(summary);
+    return res.status(200).json({
+      created_invoices: createdInvoices,
+      created_items: createdItems,
+    });
   } catch (err) {
+    if (createdInvoiceIds.length > 0) {
+      const { error: rollbackItemsError } = await supabase
+        .from("sales_invoice_items")
+        .delete()
+        .in("invoice_id", createdInvoiceIds);
+
+      if (rollbackItemsError) {
+        console.error("ROLLBACK ITEMS ERROR:", rollbackItemsError);
+      }
+
+      const { error: rollbackInvoicesError } = await supabase
+        .from("sales_invoices")
+        .delete()
+        .in("id", createdInvoiceIds);
+
+      if (rollbackInvoicesError) {
+        console.error("ROLLBACK INVOICES ERROR:", rollbackInvoicesError);
+      }
+    }
+
     console.error("IMPORT ERROR:", err);
-    res.status(500).json({ error: err.message || "Import failed" });
+    return res.status(500).json({ error: err.message || "Import failed" });
   }
 };
 

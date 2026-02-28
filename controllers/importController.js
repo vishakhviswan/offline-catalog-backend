@@ -12,16 +12,19 @@ function toArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function normalizeExcelName(value) {
-  if (typeof value !== "string") {
+function normalizeName(name) {
+  if (typeof name !== "string") {
     return "";
   }
 
-  return value.trim();
-}
-
-function likePattern(value) {
-  return `%${value.replace(/[%_]/g, "")}%`;
+  return name
+    .toLowerCase()
+    .replace(/\bmrp\b\s*[:\-]?\s*\d+(\.\d+)?/g, " ")
+    .replace(/\bmrp\b/g, " ")
+    .replace(/\d+(\.\d+)?/g, " ")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function dedupeById(rows) {
@@ -38,6 +41,33 @@ function dedupeById(rows) {
   }
 
   return Array.from(map.values());
+}
+
+function tokenize(name) {
+  const normalized = normalizeName(name);
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized.split(" ").filter(Boolean);
+}
+
+function calculateSimilarity(a, b) {
+  const tokensA = new Set(tokenize(a));
+  const tokensB = new Set(tokenize(b));
+
+  if (tokensA.size === 0 || tokensB.size === 0) {
+    return 0;
+  }
+
+  let overlapCount = 0;
+  for (const token of tokensA) {
+    if (tokensB.has(token)) {
+      overlapCount += 1;
+    }
+  }
+
+  return overlapCount / tokensA.size;
 }
 
 async function findExactMatch(tableName, excelName) {
@@ -84,67 +114,125 @@ async function findAliasMatch(aliasTable, entityTable, fkColumn, excelName) {
   return entities && entities.length ? entities[0] : null;
 }
 
-async function findSimilarMatches(aliasTable, entityTable, fkColumn, excelName) {
-  const pattern = likePattern(excelName);
+function buildOrLikeQuery(columnName, tokens) {
+  const safeTokens = tokens
+    .map((token) => token.replace(/[%_,.()]/g, ""))
+    .filter((token) => token.length >= 2)
+    .slice(0, 8);
 
-  const { data: entityRows, error: entityError } = await supabaseClient
+  if (!safeTokens.length) {
+    return "";
+  }
+
+  return safeTokens.map((token) => `${columnName}.ilike.%${token}%`).join(",");
+}
+
+async function findEntityCandidates(entityTable, tokens) {
+  let query = supabaseClient.from(entityTable).select("id, name").limit(150);
+  const orQuery = buildOrLikeQuery("name", tokens);
+
+  if (orQuery) {
+    query = query.or(orQuery);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+}
+
+async function findAliasCandidates(aliasTable, fkColumn, tokens) {
+  let query = supabaseClient
+    .from(aliasTable)
+    .select(`${fkColumn}, alias_name`)
+    .limit(200);
+  const orQuery = buildOrLikeQuery("alias_name", tokens);
+
+  if (orQuery) {
+    query = query.or(orQuery);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+}
+
+async function fetchEntitiesByIds(entityTable, ids) {
+  if (!ids.length) {
+    return [];
+  }
+
+  const { data, error } = await supabaseClient
     .from(entityTable)
     .select("id, name")
-    .ilike("name", pattern)
-    .limit(15);
+    .in("id", ids)
+    .limit(150);
 
-  if (entityError) {
-    throw entityError;
+  if (error) {
+    throw error;
   }
 
-  const { data: aliasRows, error: aliasError } = await supabaseClient
-    .from(aliasTable)
-    .select(fkColumn)
-    .ilike("alias_name", pattern)
-    .limit(30);
+  return data || [];
+}
 
-  if (aliasError) {
-    throw aliasError;
+async function findSimilarMatches(aliasTable, entityTable, fkColumn, excelName) {
+  const similarityThreshold = 0.6;
+  const excelTokens = tokenize(excelName);
+
+  if (!excelTokens.length) {
+    return [];
   }
 
-  const aliasIds = Array.from(
+  const [entityCandidates, aliasCandidates] = await Promise.all([
+    findEntityCandidates(entityTable, excelTokens),
+    findAliasCandidates(aliasTable, fkColumn, excelTokens),
+  ]);
+
+  const directMatches = [];
+  for (const row of entityCandidates) {
+    const score = calculateSimilarity(excelName, row.name);
+    if (score >= similarityThreshold) {
+      directMatches.push(row);
+    }
+  }
+
+  const aliasMatchIds = Array.from(
     new Set(
-      (aliasRows || [])
-        .map((row) => row[fkColumn])
-        .filter((value) => value !== null && value !== undefined),
+      aliasCandidates
+        .filter(
+          (row) =>
+            row &&
+            row[fkColumn] != null &&
+            calculateSimilarity(excelName, row.alias_name) >= similarityThreshold,
+        )
+        .map((row) => row[fkColumn]),
     ),
   );
 
-  let aliasEntities = [];
+  const aliasEntities = await fetchEntitiesByIds(entityTable, aliasMatchIds);
 
-  if (aliasIds.length > 0) {
-    const { data, error } = await supabaseClient
-      .from(entityTable)
-      .select("id, name")
-      .in("id", aliasIds)
-      .limit(15);
-
-    if (error) {
-      throw error;
-    }
-
-    aliasEntities = data || [];
-  }
-
-  return dedupeById([...(entityRows || []), ...aliasEntities]);
+  return dedupeById([...directMatches, ...aliasEntities]);
 }
 
 async function reconcileSingleName(excelName, config) {
-  const normalized = normalizeExcelName(excelName);
+  const rawExcelName = typeof excelName === "string" ? excelName.trim() : "";
+  const normalized = normalizeName(rawExcelName);
 
-  if (!normalized) {
+  if (!rawExcelName || !normalized) {
     return {
       excelName,
       status: STATUS.NEW_REQUIRED,
     };
   }
 
-  const exactMatch = await findExactMatch(config.entityTable, normalized);
+  const exactMatch = await findExactMatch(config.entityTable, rawExcelName);
   if (exactMatch) {
     return {
       excelName,
@@ -157,7 +245,7 @@ async function reconcileSingleName(excelName, config) {
     config.aliasTable,
     config.entityTable,
     config.fkColumn,
-    normalized,
+    rawExcelName,
   );
 
   if (aliasMatch) {
@@ -172,7 +260,7 @@ async function reconcileSingleName(excelName, config) {
     config.aliasTable,
     config.entityTable,
     config.fkColumn,
-    normalized,
+    rawExcelName,
   );
 
   if (suggestions.length) {

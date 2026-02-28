@@ -10,6 +10,6 @@ const upload = multer({
 });
 
 router.post("/analyze", upload.single("file"), analyzeSales);
-router.post("/import", upload.single("file"), importSales);
+router.post("/import", importSales);
 
 module.exports = router;
