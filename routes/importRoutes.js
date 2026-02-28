@@ -1,8 +1,8 @@
-import express from "express";
-import { reconcileImport } from "../controllers/importController.js";
+const express = require("express");
+const { reconcileImport } = require("../controllers/importController");
 
 const router = express.Router();
 
 router.post("/reconcile", reconcileImport);
 
-export default router;
+module.exports = router;
